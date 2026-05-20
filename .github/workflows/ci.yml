@@ -1,0 +1,87 @@
+name: CI — Salento ParkSync
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+
+  # ── 1. BUILD ────────────────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Compilar proyecto
+        run: ./mvnw compile -q
+
+  # ── 2. TEST + COBERTURA ─────────────────────────────────────────────────────
+  test:
+    name: Test + Cobertura
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Ejecutar pruebas unitarias
+        run: ./mvnw test
+        env:
+          JWT_SECRET: ci-test-secret-at-least-32-chars-ok!
+
+      - name: Verificar gate de cobertura JaCoCo >= 80%
+        # quality gate: bloquea el merge si la cobertura cae por debajo del 80%
+        # umbral definido en CA-01 del TRD
+        run: ./mvnw verify -DskipTests
+        env:
+          JWT_SECRET: ci-test-secret-at-least-32-chars-ok!
+
+      - name: Publicar reporte de cobertura
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+
+  # ── 3. ANÁLISIS ESTÁTICO ────────────────────────────────────────────────────
+  static-analysis:
+    name: Análisis Estático
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Checkstyle — convenciones de código
+        run: ./mvnw checkstyle:check -q
+
+      - name: Escaneo de vulnerabilidades en dependencias (Snyk)
+        # CA-06: 0 vulnerabilidades críticas/altas
+        uses: snyk/actions/maven@master
+        continue-on-error: false
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high

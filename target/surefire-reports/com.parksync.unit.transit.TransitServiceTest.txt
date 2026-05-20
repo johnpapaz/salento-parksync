@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.parksync.unit.transit.TransitServiceTest
+-------------------------------------------------------------------------------
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.018 s -- in com.parksync.unit.transit.TransitServiceTest

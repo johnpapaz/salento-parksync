@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CommandService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">salento-parksync</a> &gt; <a href="index.source.html" class="el_package">com.parksync.command</a> &gt; <span class="el_source">CommandService.java</span></div><h1>CommandService.java</h1><pre class="source lang-java linenums">package com.parksync.command;
+
+import com.parksync.hysteresis.HysteresisEngine;
+import com.parksync.shared.EventType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Comparator;
+import java.util.List;
+
+/**
+ * Procesa la cola de eventos del cliente.
+ * Garantiza idempotencia (RTF-11) y orden FIFO por timestampOrigen (RTF-09).
+ */
+@Service
+public class CommandService {
+
+<span class="fc" id="L20">    private static final Logger log = LoggerFactory.getLogger(CommandService.class);</span>
+
+    private final ParkingEventRepository repository;
+    private final HysteresisEngine hysteresisEngine;
+
+<span class="fc" id="L25">    public CommandService(ParkingEventRepository repository, HysteresisEngine hysteresisEngine) {</span>
+<span class="fc" id="L26">        this.repository = repository;</span>
+<span class="fc" id="L27">        this.hysteresisEngine = hysteresisEngine;</span>
+<span class="fc" id="L28">    }</span>
+
+    @Transactional
+    public void processBatch(List&lt;ParkingEventRequest&gt; requests) {
+        // RTF-09: orden cronológico FIFO
+<span class="fc" id="L33">        requests.stream()</span>
+<span class="fc" id="L34">                .sorted(Comparator.comparing(ParkingEventRequest::timestampOrigen))</span>
+<span class="fc" id="L35">                .forEach(this::processOne);</span>
+<span class="fc" id="L36">    }</span>
+
+    private void processOne(ParkingEventRequest req) {
+        // RTF-11: idempotencia — si el UUID ya existe, retornar 200 OK sin alterar estado
+<span class="fc bfc" id="L40" title="All 2 branches covered.">        if (repository.existsByEventoId(req.eventoId())) {</span>
+<span class="fc" id="L41">            log.info(&quot;[IDEMPOTENT] Evento {} ya procesado. Ignorado.&quot;, req.eventoId());</span>
+<span class="fc" id="L42">            return;</span>
+        }
+
+<span class="fc" id="L45">        var event = new ParkingEvent(</span>
+<span class="fc" id="L46">                req.eventoId(), req.parkingLotId(), req.timestampOrigen(),</span>
+<span class="fc" id="L47">                req.tipoEvento(), req.categoriaVehiculo(), req.valorAbsoluto());</span>
+<span class="fc" id="L48">        repository.save(event);</span>
+
+<span class="fc" id="L50">        log.info(&quot;[EVENT] correlationId={} lot={} type={}&quot;, req.eventoId(), req.parkingLotId(), req.tipoEvento());</span>
+
+        // RTF-17: force_full bypassa el motor matemático
+<span class="fc bfc" id="L53" title="All 2 branches covered.">        if (req.tipoEvento() == EventType.FORCE_FULL) {</span>
+<span class="fc" id="L54">            hysteresisEngine.forceRed(req.parkingLotId());</span>
+<span class="fc" id="L55">        } else {</span>
+<span class="fc" id="L56">            hysteresisEngine.recalculate(req.parkingLotId());</span>
+        }
+<span class="fc" id="L58">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

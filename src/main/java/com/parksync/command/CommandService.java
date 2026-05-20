@@ -1,0 +1,59 @@
+package com.parksync.command;
+
+import com.parksync.hysteresis.HysteresisEngine;
+import com.parksync.shared.EventType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Comparator;
+import java.util.List;
+
+/**
+ * Procesa la cola de eventos del cliente.
+ * Garantiza idempotencia (RTF-11) y orden FIFO por timestampOrigen (RTF-09).
+ */
+@Service
+public class CommandService {
+
+    private static final Logger log = LoggerFactory.getLogger(CommandService.class);
+
+    private final ParkingEventRepository repository;
+    private final HysteresisEngine hysteresisEngine;
+
+    public CommandService(ParkingEventRepository repository, HysteresisEngine hysteresisEngine) {
+        this.repository = repository;
+        this.hysteresisEngine = hysteresisEngine;
+    }
+
+    @Transactional
+    public void processBatch(List<ParkingEventRequest> requests) {
+        // RTF-09: orden cronológico FIFO
+        requests.stream()
+                .sorted(Comparator.comparing(ParkingEventRequest::timestampOrigen))
+                .forEach(this::processOne);
+    }
+
+    private void processOne(ParkingEventRequest req) {
+        // RTF-11: idempotencia — si el UUID ya existe, retornar 200 OK sin alterar estado
+        if (repository.existsByEventoId(req.eventoId())) {
+            log.info("[IDEMPOTENT] Evento {} ya procesado. Ignorado.", req.eventoId());
+            return;
+        }
+
+        var event = new ParkingEvent(
+                req.eventoId(), req.parkingLotId(), req.timestampOrigen(),
+                req.tipoEvento(), req.categoriaVehiculo(), req.valorAbsoluto());
+        repository.save(event);
+
+        log.info("[EVENT] correlationId={} lot={} type={}", req.eventoId(), req.parkingLotId(), req.tipoEvento());
+
+        // RTF-17: force_full bypassa el motor matemático
+        if (req.tipoEvento() == EventType.FORCE_FULL) {
+            hysteresisEngine.forceRed(req.parkingLotId());
+        } else {
+            hysteresisEngine.recalculate(req.parkingLotId());
+        }
+    }
+}
