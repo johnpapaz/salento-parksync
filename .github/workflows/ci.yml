@@ -77,11 +77,11 @@ jobs:
       - name: Checkstyle — convenciones de código
         run: ./mvnw checkstyle:check -q
 
+      - name: Instalar Snyk CLI
+        uses: snyk/actions/setup@master
+
       - name: Escaneo de vulnerabilidades en dependencias (Snyk)
         # CA-06: 0 vulnerabilidades críticas/altas
-        uses: snyk/actions/maven-3-jdk-21@master
-        continue-on-error: false
+        run: snyk test --severity-threshold=high
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --severity-threshold=high
