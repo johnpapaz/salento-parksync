@@ -79,7 +79,7 @@ jobs:
 
       - name: Escaneo de vulnerabilidades en dependencias (Snyk)
         # CA-06: 0 vulnerabilidades críticas/altas
-        uses: snyk/actions/maven@master
+        uses: snyk/actions/maven-3-jdk-21@master
         continue-on-error: false
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
