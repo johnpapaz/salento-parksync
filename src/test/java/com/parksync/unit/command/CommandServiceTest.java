@@ -2,6 +2,8 @@ package com.parksync.unit.command;
 
 import com.parksync.command.*;
 import com.parksync.hysteresis.HysteresisEngine;
+import com.parksync.hysteresis.ParkingLot;
+import com.parksync.hysteresis.ParkingLotRepository;
 import com.parksync.shared.EventType;
 import com.parksync.shared.VehicleCategory;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.Mockito.*;
@@ -19,14 +22,16 @@ import static org.mockito.Mockito.*;
 class CommandServiceTest {
 
     private ParkingEventRepository repository;
+    private ParkingLotRepository lotRepository;
     private HysteresisEngine hysteresisEngine;
     private CommandService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(ParkingEventRepository.class);
+        lotRepository = mock(ParkingLotRepository.class);
         hysteresisEngine = mock(HysteresisEngine.class);
-        service = new CommandService(repository, hysteresisEngine);
+        service = new CommandService(repository, lotRepository, hysteresisEngine);
     }
 
     @Test
@@ -34,12 +39,16 @@ class CommandServiceTest {
         UUID id = UUID.randomUUID();
         when(repository.existsByEventoId(id)).thenReturn(false);
 
+        ParkingLot lot = new ParkingLot("LOT-001", "Salento Central", 10, 10, 10);
+        when(lotRepository.findById("LOT-001")).thenReturn(Optional.of(lot));
+
         var req = new ParkingEventRequest(id, "LOT-001", Instant.now(),
                 EventType.ENTRY, VehicleCategory.PARTICULAR, null);
 
         service.processBatch(List.of(req));
 
         verify(repository).save(any(ParkingEvent.class));
+        verify(lotRepository).save(lot);
         verify(hysteresisEngine).recalculate("LOT-001");
     }
 
@@ -55,6 +64,8 @@ class CommandServiceTest {
         service.processBatch(List.of(req));
 
         verify(repository, never()).save(any());
+        verify(lotRepository, never()).findById(any());
+        verify(lotRepository, never()).save(any());
         verify(hysteresisEngine, never()).recalculate(any());
     }
 
@@ -70,6 +81,8 @@ class CommandServiceTest {
         service.processBatch(List.of(req));
 
         verify(hysteresisEngine).forceRed("LOT-001");
+        verify(lotRepository, never()).findById(any());
+        verify(lotRepository, never()).save(any());
         verify(hysteresisEngine, never()).recalculate(any());
     }
 
@@ -79,6 +92,9 @@ class CommandServiceTest {
         UUID id2 = UUID.randomUUID();
         when(repository.existsByEventoId(any())).thenReturn(false);
 
+        ParkingLot lot = new ParkingLot("LOT-001", "Salento Central", 10, 10, 10);
+        when(lotRepository.findById("LOT-001")).thenReturn(Optional.of(lot));
+
         var req1 = new ParkingEventRequest(id1, "LOT-001", Instant.now().minusSeconds(10),
                 EventType.ENTRY, VehicleCategory.PARTICULAR, null);
         var req2 = new ParkingEventRequest(id2, "LOT-001", Instant.now(),
@@ -87,5 +103,6 @@ class CommandServiceTest {
         service.processBatch(List.of(req2, req1)); // orden invertido a propósito
 
         verify(repository, times(2)).save(any());
+        verify(lotRepository, times(2)).save(lot);
     }
 }

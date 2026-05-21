@@ -1,7 +1,10 @@
 package com.parksync.command;
 
 import com.parksync.hysteresis.HysteresisEngine;
+import com.parksync.hysteresis.ParkingLot;
+import com.parksync.hysteresis.ParkingLotRepository;
 import com.parksync.shared.EventType;
+import com.parksync.shared.VehicleCategory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -20,10 +23,14 @@ public class CommandService {
     private static final Logger log = LoggerFactory.getLogger(CommandService.class);
 
     private final ParkingEventRepository repository;
+    private final ParkingLotRepository lotRepository;
     private final HysteresisEngine hysteresisEngine;
 
-    public CommandService(ParkingEventRepository repository, HysteresisEngine hysteresisEngine) {
+    public CommandService(ParkingEventRepository repository,
+                          ParkingLotRepository lotRepository,
+                          HysteresisEngine hysteresisEngine) {
         this.repository = repository;
+        this.lotRepository = lotRepository;
         this.hysteresisEngine = hysteresisEngine;
     }
 
@@ -52,8 +59,43 @@ public class CommandService {
         // RTF-17: force_full bypassa el motor matemático
         if (req.tipoEvento() == EventType.FORCE_FULL) {
             hysteresisEngine.forceRed(req.parkingLotId());
-        } else {
-            hysteresisEngine.recalculate(req.parkingLotId());
+            return;
+        }
+
+        // Actualizar aforo del parqueadero en PostgreSQL antes de recalcular
+        lotRepository.findById(req.parkingLotId()).ifPresent(lot -> {
+            updateOcupacion(lot, req);
+            lotRepository.save(lot);
+        });
+
+        hysteresisEngine.recalculate(req.parkingLotId());
+    }
+
+    /**
+     * Aplica la mutación de ocupación según tipo de evento y categoría.
+     * PRD §6.4 — segmentación estricta: cada categoría maneja su propia bolsa.
+     */
+    private void updateOcupacion(ParkingLot lot, ParkingEventRequest req) {
+        VehicleCategory cat = req.categoriaVehiculo();
+
+        switch (req.tipoEvento()) {
+            case ENTRY -> {
+                if (cat == VehicleCategory.PARTICULAR) lot.incrementarCarros();
+                else if (cat == VehicleCategory.MOTOCICLETA) lot.incrementarMotos();
+                else if (cat == VehicleCategory.BUS) lot.incrementarBuses();
+            }
+            case EXIT -> {
+                if (cat == VehicleCategory.PARTICULAR) lot.decrementarCarros();
+                else if (cat == VehicleCategory.MOTOCICLETA) lot.decrementarMotos();
+                else if (cat == VehicleCategory.BUS) lot.decrementarBuses();
+            }
+            case RECALIBRATION -> {
+                // RTF-07: set_absolute_value por categoría
+                if (cat != null && req.valorAbsoluto() != null) {
+                    lot.recalibrar(cat, req.valorAbsoluto());
+                }
+            }
+            default -> { /* FORCE_FULL ya manejado arriba */ }
         }
     }
 }

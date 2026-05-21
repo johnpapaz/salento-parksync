@@ -44,15 +44,25 @@ public class ParkingLot {
     public String getId() { return id; }
     public String getNombre() { return nombre; }
     public int getCapacidadMaximaCarros() { return capacidadMaximaCarros; }
+    public int getCapacidadMaximaMotos()  { return capacidadMaximaMotos; }
+    public int getCapacidadMaximaBuses()  { return capacidadMaximaBuses; }
     public int getOcupacionCarros() { return ocupacionCarros; }
     public int getOcupacionMotos()  { return ocupacionMotos; }
     public int getOcupacionBuses()  { return ocupacionBuses; }
 
-    /** Ocupación total ponderada sobre capacidad de carros (entidad dominante). */
+    /**
+     * Ocupación total del parqueadero sobre la capacidad máxima total.
+     * RTF-13: insumo para el motor de histéresis.
+     * Bolsas independientes por categoría — CON-05, PRD §6.4.
+     */
     public double getOcupacionPorcentaje() {
-        if (capacidadMaximaCarros == 0) return 0;
-        return (double) ocupacionCarros / capacidadMaximaCarros * 100.0;
+        int capacidadTotal = capacidadMaximaCarros + capacidadMaximaMotos + capacidadMaximaBuses;
+        if (capacidadTotal == 0) return 0;
+        int ocupacionTotal = ocupacionCarros + ocupacionMotos + ocupacionBuses;
+        return (double) ocupacionTotal / capacidadTotal * 100.0;
     }
+
+    // ── Mutadores de Carros ────────────────────────────────────────────────
 
     public void incrementarCarros() {
         if (ocupacionCarros < capacidadMaximaCarros) ocupacionCarros++;
@@ -62,6 +72,8 @@ public class ParkingLot {
         if (ocupacionCarros > 0) ocupacionCarros--;
     }
 
+    // ── Mutadores de Motos ────────────────────────────────────────────────
+
     public void incrementarMotos() {
         if (ocupacionMotos < capacidadMaximaMotos) ocupacionMotos++;
     }
@@ -70,8 +82,25 @@ public class ParkingLot {
         if (ocupacionMotos > 0) ocupacionMotos--;
     }
 
-    public void recalibrar(int nuevaOcupacionCarros) {
-        // RTF-07: set_absolute_value reinicia el contador
-        this.ocupacionCarros = Math.max(0, Math.min(nuevaOcupacionCarros, capacidadMaximaCarros));
+    // ── Mutadores de Buses ────────────────────────────────────────────────
+
+    public void incrementarBuses() {
+        if (ocupacionBuses < capacidadMaximaBuses) ocupacionBuses++;
+    }
+
+    public void decrementarBuses() {
+        if (ocupacionBuses > 0) ocupacionBuses--;
+    }
+
+    /**
+     * RTF-07: set_absolute_value — recalibración por categoría de vehículo.
+     * Evita que el operador corrija una bolsa equivocada al sincronizar offline.
+     */
+    public void recalibrar(com.parksync.shared.VehicleCategory categoria, int nuevaOcupacion) {
+        switch (categoria) {
+            case PARTICULAR  -> ocupacionCarros = Math.max(0, Math.min(nuevaOcupacion, capacidadMaximaCarros));
+            case MOTOCICLETA -> ocupacionMotos  = Math.max(0, Math.min(nuevaOcupacion, capacidadMaximaMotos));
+            case BUS         -> ocupacionBuses  = Math.max(0, Math.min(nuevaOcupacion, capacidadMaximaBuses));
+        }
     }
 }
