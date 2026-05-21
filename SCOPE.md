@@ -75,7 +75,7 @@
 | Tipo | Requisito del TRD | Justificación |
 |------|-------------------|---------------|
 | Integración E2E (TRD 13.2) | Cypress/Playwright con simulación de Service Workers | **Excluido.** Aplica al cliente PWA (frontend), fuera del alcance del backend Spring. El flujo offline-first es responsabilidad del Service Worker del navegador, no del API REST. |
-| Integración backend (Spring Test + Testcontainers) | Flujo completo evento → PostgreSQL → Redis | **No incluido como suite formal.** Los escenarios están cubiertos por las pruebas unitarias con mocks. El comportamiento es demostrable en ejecución local con `docker-compose`. |
+| Integración backend (Spring Test) | Flujo completo evento → PostgreSQL → Redis | ✅ **Implementado.** Se diseñó y codificó una suite formal en [IntegrationTest.java](file:///c:/Users/Johna/Desktop/salento-parksync/src/test/java/com/parksync/integration/IntegrationTest.java) que valida de inicio a fin la ingesta de eventos, la persistencia en base de datos H2 y la derivación de estados en Redis. |
 
 ### 2.2 Pruebas de Carga y Performance
 
