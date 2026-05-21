@@ -25,8 +25,8 @@ public class QueryService {
     }
 
     public List<ParkingStatusResponse> getAllStatuses() {
-        return lotRepository.findAll().stream()
-                .map(lot -> getStatus(lot.getId()))
+        return stateCache.getActiveLots().stream()
+                .map(this::getStatus)
                 .toList();
     }
 }

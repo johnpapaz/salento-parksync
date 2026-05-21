@@ -31,9 +31,13 @@ class TransitServiceTest {
     }
 
     @Test
-    void getGlobalStats_agrega_todos_los_parqueaderos() {
+    void getGlobalStats_agrega_todos_los_parqueaderos_con_suma_total_de_aforos() {
         // RTF-20: panel global
         var lot = new ParkingLot("LOT-001", "Central", 50, 20, 5);
+        lot.incrementarCarros(); // 1
+        lot.incrementarMotos();  // 1
+        lot.incrementarBuses();  // 1
+
         when(lotRepository.findAll()).thenReturn(List.of(lot));
         when(stateCache.getStatus("LOT-001")).thenReturn(ParkingStatus.VERDE);
         when(stateCache.getLastUpdated("LOT-001")).thenReturn("2026-04-17T14:30:00Z");
@@ -43,6 +47,10 @@ class TransitServiceTest {
         assertEquals(1, stats.size());
         assertEquals("LOT-001", stats.get(0).parkingLotId());
         assertEquals(ParkingStatus.VERDE, stats.get(0).estado());
+        // Capacidad total debe ser 50 + 20 + 5 = 75
+        assertEquals(75, stats.get(0).capacidadTotal());
+        // Ocupación actual debe ser 1 + 1 + 1 = 3
+        assertEquals(3, stats.get(0).ocupacionActual());
     }
 
     @Test

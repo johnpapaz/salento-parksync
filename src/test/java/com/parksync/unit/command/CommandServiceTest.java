@@ -105,4 +105,115 @@ class CommandServiceTest {
         verify(repository, times(2)).save(any());
         verify(lotRepository, times(2)).save(lot);
     }
+
+    @Test
+    void evento_entrada_y_salida_de_motos_y_buses() {
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+        UUID id3 = UUID.randomUUID();
+        UUID id4 = UUID.randomUUID();
+        when(repository.existsByEventoId(any())).thenReturn(false);
+
+        ParkingLot lot = new ParkingLot("LOT-001", "Salento Central", 10, 10, 10);
+        when(lotRepository.findById("LOT-001")).thenReturn(Optional.of(lot));
+
+        var req1 = new ParkingEventRequest(id1, "LOT-001", Instant.now(), EventType.ENTRY, VehicleCategory.MOTOCICLETA, null);
+        var req2 = new ParkingEventRequest(id2, "LOT-001", Instant.now(), EventType.EXIT, VehicleCategory.MOTOCICLETA, null);
+        var req3 = new ParkingEventRequest(id3, "LOT-001", Instant.now(), EventType.ENTRY, VehicleCategory.BUS, null);
+        var req4 = new ParkingEventRequest(id4, "LOT-001", Instant.now(), EventType.EXIT, VehicleCategory.BUS, null);
+
+        service.processBatch(List.of(req1, req2, req3, req4));
+
+        verify(repository, times(4)).save(any());
+    }
+
+    @Test
+    void evento_recalibracion_actualiza_absoluto() {
+        UUID id = UUID.randomUUID();
+        when(repository.existsByEventoId(id)).thenReturn(false);
+
+        ParkingLot lot = new ParkingLot("LOT-001", "Salento Central", 10, 10, 10);
+        when(lotRepository.findById("LOT-001")).thenReturn(Optional.of(lot));
+
+        var req = new ParkingEventRequest(id, "LOT-001", Instant.now(), EventType.RECALIBRATION, VehicleCategory.PARTICULAR, 8);
+
+        service.processBatch(List.of(req));
+
+        verify(lotRepository).save(lot);
+        org.junit.jupiter.api.Assertions.assertEquals(8, lot.getOcupacionCarros());
+    }
+
+    @Test
+    void lanzar_excepcion_cuando_lote_supera_limite_de_sobrecarga() {
+        var requests = new java.util.ArrayList<ParkingEventRequest>();
+        for (int i = 0; i < 51; i++) {
+            requests.add(new ParkingEventRequest(UUID.randomUUID(), "LOT-001", Instant.now(),
+                    EventType.ENTRY, VehicleCategory.PARTICULAR, null));
+        }
+
+        org.junit.jupiter.api.Assertions.assertThrows(ServiceOverloadedException.class, () -> {
+            service.processBatch(requests);
+        });
+    }
+
+    @Test
+    void evento_con_lote_inexistente_no_actualiza_ocupacion_ni_falla() {
+        UUID id = UUID.randomUUID();
+        when(repository.existsByEventoId(id)).thenReturn(false);
+        when(lotRepository.findById("LOT-NONE")).thenReturn(Optional.empty());
+
+        var req = new ParkingEventRequest(id, "LOT-NONE", Instant.now(),
+                EventType.ENTRY, VehicleCategory.PARTICULAR, null);
+
+        service.processBatch(List.of(req));
+
+        verify(repository).save(any(ParkingEvent.class));
+        verify(lotRepository, never()).save(any());
+        // Aún así recalcula la histéresis (o al menos no falla)
+        verify(hysteresisEngine).recalculate("LOT-NONE");
+    }
+
+    @Test
+    void evento_con_recalibracion_valores_nulos_no_falla() {
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+        when(repository.existsByEventoId(any())).thenReturn(false);
+
+        ParkingLot lot = new ParkingLot("LOT-001", "Salento Central", 10, 10, 10);
+        when(lotRepository.findById("LOT-001")).thenReturn(Optional.of(lot));
+
+        // null category
+        var req1 = new ParkingEventRequest(id1, "LOT-001", Instant.now(),
+                EventType.RECALIBRATION, null, 5);
+        // null value
+        var req2 = new ParkingEventRequest(id2, "LOT-001", Instant.now(),
+                EventType.RECALIBRATION, VehicleCategory.PARTICULAR, null);
+
+        service.processBatch(List.of(req1, req2));
+
+        verify(lotRepository, times(2)).save(lot);
+        // Ocupación debe seguir siendo 0 ya que se ignoró la recalibración nula
+        org.junit.jupiter.api.Assertions.assertEquals(0, lot.getOcupacionCarros());
+    }
+
+    @Test
+    void evento_mantiene_mdc_anterior_si_existe() {
+        UUID id = UUID.randomUUID();
+        when(repository.existsByEventoId(id)).thenReturn(false);
+
+        ParkingLot lot = new ParkingLot("LOT-001", "Salento Central", 10, 10, 10);
+        when(lotRepository.findById("LOT-001")).thenReturn(Optional.of(lot));
+
+        var req = new ParkingEventRequest(id, "LOT-001", Instant.now(),
+                EventType.ENTRY, VehicleCategory.PARTICULAR, null);
+
+        org.slf4j.MDC.put("correlationId", "prev-id");
+        try {
+            service.processBatch(List.of(req));
+            org.junit.jupiter.api.Assertions.assertEquals("prev-id", org.slf4j.MDC.get("correlationId"));
+        } finally {
+            org.slf4j.MDC.remove("correlationId");
+        }
+    }
 }
+

@@ -49,6 +49,14 @@ public class ParkingStateCache {
         return val != null ? val.toString() : null;
     }
 
+    public void addActiveLot(String parkingLotId) {
+        redisTemplate.opsForSet().add("salento:park:active_lots", parkingLotId);
+    }
+
+    public java.util.Set<String> getActiveLots() {
+        return redisTemplate.opsForSet().members("salento:park:active_lots");
+    }
+
     private String buildKey(String parkingLotId) {
         return KEY_PREFIX + parkingLotId + KEY_SUFFIX;
     }

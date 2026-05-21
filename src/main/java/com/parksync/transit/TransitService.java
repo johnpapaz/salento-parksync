@@ -24,13 +24,17 @@ public class TransitService {
     /** RTF-20: agrega capacidad y ocupación en tiempo real de todos los parqueaderos. */
     public List<ParkingStats> getGlobalStats() {
         return lotRepository.findAll().stream()
-                .map(lot -> new ParkingStats(
-                        lot.getId(),
-                        lot.getNombre(),
-                        lot.getCapacidadMaximaCarros(),
-                        lot.getOcupacionCarros(),
-                        stateCache.getStatus(lot.getId()),
-                        stateCache.getLastUpdated(lot.getId())))
+                .map(lot -> {
+                    int capacidadTotal = lot.getCapacidadMaximaCarros() + lot.getCapacidadMaximaMotos() + lot.getCapacidadMaximaBuses();
+                    int ocupacionTotal = lot.getOcupacionCarros() + lot.getOcupacionMotos() + lot.getOcupacionBuses();
+                    return new ParkingStats(
+                            lot.getId(),
+                            lot.getNombre(),
+                            capacidadTotal,
+                            ocupacionTotal,
+                            stateCache.getStatus(lot.getId()),
+                            stateCache.getLastUpdated(lot.getId()));
+                })
                 .toList();
     }
 

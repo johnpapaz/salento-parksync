@@ -69,12 +69,14 @@ class QueryServiceTest {
     void getAllStatuses_retorna_todos_los_parqueaderos() {
         var lot1 = new ParkingLot("LOT-001", "Central", 50, 20, 5);
         var lot2 = new ParkingLot("LOT-002", "Norte", 30, 10, 2);
-        when(lotRepository.findAll()).thenReturn(List.of(lot1, lot2));
+        when(stateCache.getActiveLots()).thenReturn(java.util.Set.of("LOT-001", "LOT-002"));
         when(stateCache.getStatus(any())).thenReturn(ParkingStatus.VERDE);
         when(stateCache.getLastUpdated(any())).thenReturn("2026-04-17T14:30:00Z");
 
         var responses = queryService.getAllStatuses();
 
         assertEquals(2, responses.size());
+        verify(stateCache).getActiveLots();
+        verifyNoInteractions(lotRepository); // RTF-14: no toca PostgreSQL
     }
 }

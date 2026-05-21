@@ -34,8 +34,15 @@ public class CommandService {
         this.hysteresisEngine = hysteresisEngine;
     }
 
+    private static final int BATCH_SIZE_THRESHOLD = 50;
+
     @Transactional
     public void processBatch(List<ParkingEventRequest> requests) {
+        if (requests.size() > BATCH_SIZE_THRESHOLD) {
+            log.warn("[OVERLOAD] Lote de eventos demasiado grande: {}. Lanzando 503.", requests.size());
+            throw new ServiceOverloadedException(30);
+        }
+
         // RTF-09: orden cronológico FIFO
         requests.stream()
                 .sorted(Comparator.comparing(ParkingEventRequest::timestampOrigen))
@@ -43,32 +50,42 @@ public class CommandService {
     }
 
     private void processOne(ParkingEventRequest req) {
-        // RTF-11: idempotencia — si el UUID ya existe, retornar 200 OK sin alterar estado
-        if (repository.existsByEventoId(req.eventoId())) {
-            log.info("[IDEMPOTENT] Evento {} ya procesado. Ignorado.", req.eventoId());
-            return;
+        String previousCorrelationId = org.slf4j.MDC.get("correlationId");
+        org.slf4j.MDC.put("correlationId", req.eventoId().toString());
+        try {
+            // RTF-11: idempotencia — si el UUID ya existe, retornar 200 OK sin alterar estado
+            if (repository.existsByEventoId(req.eventoId())) {
+                log.info("[IDEMPOTENT] Evento {} ya procesado. Ignorado.", req.eventoId());
+                return;
+            }
+
+            var event = new ParkingEvent(
+                    req.eventoId(), req.parkingLotId(), req.timestampOrigen(),
+                    req.tipoEvento(), req.categoriaVehiculo(), req.valorAbsoluto());
+            repository.save(event);
+
+            log.info("[EVENT] correlationId={} lot={} type={}", req.eventoId(), req.parkingLotId(), req.tipoEvento());
+
+            // RTF-17: force_full bypassa el motor matemático
+            if (req.tipoEvento() == EventType.FORCE_FULL) {
+                hysteresisEngine.forceRed(req.parkingLotId());
+                return;
+            }
+
+            // Actualizar aforo del parqueadero en PostgreSQL antes de recalcular
+            lotRepository.findById(req.parkingLotId()).ifPresent(lot -> {
+                updateOcupacion(lot, req);
+                lotRepository.save(lot);
+            });
+
+            hysteresisEngine.recalculate(req.parkingLotId());
+        } finally {
+            if (previousCorrelationId != null) {
+                org.slf4j.MDC.put("correlationId", previousCorrelationId);
+            } else {
+                org.slf4j.MDC.remove("correlationId");
+            }
         }
-
-        var event = new ParkingEvent(
-                req.eventoId(), req.parkingLotId(), req.timestampOrigen(),
-                req.tipoEvento(), req.categoriaVehiculo(), req.valorAbsoluto());
-        repository.save(event);
-
-        log.info("[EVENT] correlationId={} lot={} type={}", req.eventoId(), req.parkingLotId(), req.tipoEvento());
-
-        // RTF-17: force_full bypassa el motor matemático
-        if (req.tipoEvento() == EventType.FORCE_FULL) {
-            hysteresisEngine.forceRed(req.parkingLotId());
-            return;
-        }
-
-        // Actualizar aforo del parqueadero en PostgreSQL antes de recalcular
-        lotRepository.findById(req.parkingLotId()).ifPresent(lot -> {
-            updateOcupacion(lot, req);
-            lotRepository.save(lot);
-        });
-
-        hysteresisEngine.recalculate(req.parkingLotId());
     }
 
     /**
